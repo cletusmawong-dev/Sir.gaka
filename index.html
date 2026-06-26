@@ -1913,6 +1913,9 @@ body.cashier-locked #branch-sel { pointer-events:none; }
         <div><label style="font-size:11px;font-weight:700;color:rgba(255,255,255,.45);letter-spacing:.8px;text-transform:uppercase;display:block;margin-bottom:7px">Password</label><input id="login-pass" type="password" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" style="width:100%;padding:13px 16px;background:rgba(255,255,255,.09);border:1.5px solid rgba(255,255,255,.14);border-radius:12px;color:#fff;font-size:14px;outline:none;box-sizing:border-box;font-family:DM Sans,sans-serif" onfocus="this.style.borderColor='rgba(96,165,250,.8)'" onblur="this.style.borderColor='rgba(255,255,255,.14)'"/></div>
         <div id="login-error" style="color:#FCA5A5;font-size:13px;font-weight:600;text-align:center;min-height:16px"></div>
         <button id="login-btn" onclick="doLogin()" style="width:100%;padding:14px;background:linear-gradient(135deg,#2563EB,#0EA5E9);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif" onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">Sign In</button>
+        <!-- Debug button — tap on phone to see what's in Firebase -->
+        <button onclick="sgDebugCompanies()" style="width:100%;margin-top:8px;padding:10px;background:rgba(255,255,255,.06);border:1px dashed rgba(255,255,255,.2);border-radius:10px;color:rgba(255,255,255,.4);font-size:12px;cursor:pointer;font-family:DM Sans,sans-serif">🔍 Debug: Check Companies</button>
+        <div id="sg-debug-out" style="margin-top:8px;padding:10px;background:rgba(0,0,0,.3);border-radius:8px;font-size:11px;color:#93C5FD;font-family:monospace;display:none;word-break:break-all;line-height:1.6"></div>
       </div>
     </div>
   </div>
@@ -8823,6 +8826,48 @@ function sgShowAdminLogin(){
   var u=document.getElementById('admin-user');if(u){u.value='';setTimeout(function(){u.focus();},80);}
   var pw=document.getElementById('admin-pass');if(pw)pw.value='';
 }
+
+/* ── DEBUG: Check what's in Firebase ── */
+async function sgDebugCompanies(){
+  var out=document.getElementById('sg-debug-out');
+  if(!out)return;
+  out.style.display='block';
+  out.innerHTML='Checking...';
+
+  var lines=[];
+  lines.push('DB ready: '+(!!db));
+  lines.push('SG_BUSINESSES in memory: '+SG_BUSINESSES.length);
+  SG_BUSINESSES.forEach(function(b,i){
+    lines.push('  ['+i+'] '+b.name+' (id:'+b.id+', paused:'+!!b.paused+')');
+  });
+
+  var ls='';
+  try{ls=localStorage.getItem('sg_businesses')||'(empty)';}catch(e){ls='error: '+e.message;}
+  var lsParsed=[];
+  try{lsParsed=JSON.parse(ls)||[];}catch(e){}
+  lines.push('localStorage count: '+lsParsed.length);
+
+  if(db){
+    try{
+      lines.push('--- Fetching from Firebase... ---');
+      out.innerHTML=lines.join('<br>');
+      var snap=await db.collection('sg_businesses').get();
+      lines.push('Firebase docs found: '+snap.size);
+      snap.forEach(function(doc){
+        var d=doc.data();
+        lines.push('  Doc: '+doc.id+' → name:'+(d.name||'?')+' id:'+(d.id||'?'));
+      });
+    }catch(e){
+      lines.push('Firebase ERROR: '+e.message);
+      lines.push('Code: '+(e.code||'none'));
+    }
+  } else {
+    lines.push('Firebase db is NULL — not connected');
+  }
+
+  out.innerHTML=lines.join('<br>');
+}
+
 function sgShowBusinessLogin(){
   var p=document.getElementById('sg-portal');if(p)p.style.display='none';
   var f=document.getElementById('sg-login-form');if(f)f.style.display='';
@@ -10969,5 +11014,5 @@ document.addEventListener('click',function(e){
 });
 </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a11da2511a164193',t:'MTc4MjQ5MTgxOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a11daf51fe6a4193',t:'MTc4MjQ5MjM1Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
