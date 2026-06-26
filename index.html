@@ -1960,10 +1960,13 @@ body.cashier-locked #branch-sel { pointer-events:none; }
         <div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label style="font-size:11px;font-weight:700;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.7px">Firebase Config (JSON) *</label>
-            <a href="https://console.firebase.google.com" target="_blank" style="font-size:11.5px;color:rgba(96,165,250,.8);text-decoration:none;font-weight:600">Firebase Console</a>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button type="button" onclick="testFirebaseConfig()" style="background:rgba(96,165,250,.2);border:1px solid rgba(96,165,250,.4);border-radius:7px;padding:3px 10px;color:#93C5FD;font-size:11px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif">Test Config</button>
+              <a href="https://console.firebase.google.com" target="_blank" style="font-size:11.5px;color:rgba(96,165,250,.8);text-decoration:none;font-weight:600">Firebase Console</a>
+            </div>
           </div>
-          <textarea id="ab-firebase" rows="7" placeholder="Paste your Firebase config JSON here" style="width:100%;padding:11px 14px;background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.14);border-radius:10px;color:#fff;font-size:12px;font-family:monospace;outline:none;box-sizing:border-box;resize:vertical;line-height:1.6" onfocus="this.style.borderColor='rgba(96,165,250,.8)'" onblur="this.style.borderColor='rgba(255,255,255,.14)'"></textarea>
-          <div style="font-size:11px;color:rgba(255,255,255,.28);margin-top:4px">Firebase Console &gt; Project Settings &gt; Apps &gt; Web &gt; SDK setup</div>
+          <textarea id="ab-firebase" rows="7" placeholder="Paste your Firebase config here — any format works:&#10;&#10;const firebaseConfig = {&#10;  apiKey: &quot;AIza...&quot;,&#10;  authDomain: &quot;project.firebaseapp.com&quot;,&#10;  projectId: &quot;project-id&quot;,&#10;  ...&#10;}" style="width:100%;padding:11px 14px;background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.14);border-radius:10px;color:#fff;font-size:12px;font-family:monospace;outline:none;box-sizing:border-box;resize:vertical;line-height:1.6" onfocus="this.style.borderColor='rgba(96,165,250,.8)'" onblur="this.style.borderColor='rgba(255,255,255,.14)'"></textarea>
+          <div style="font-size:11px;color:rgba(255,255,255,.28);margin-top:4px">Paste exactly as copied from Firebase Console — the parser handles any format automatically</div>
         </div>
         <div id="ab-error" style="color:#FCA5A5;font-size:13px;font-weight:600;text-align:center;min-height:16px"></div>
         <div style="display:flex;gap:10px">
@@ -3782,8 +3785,86 @@ var SG_BUSINESSES=[{
   ],
   firebaseConfig:{apiKey:'AIzaSyD9XzWNKt-3WpwXEzak40QDKCRMITPPVHg',authDomain:'inventory-2e3a4.firebaseapp.com',projectId:'inventory-2e3a4',storageBucket:'inventory-2e3a4.firebasestorage.app',messagingSenderId:'3728378608',appId:'1:3728378608:web:89eacb094ac1d48eb29035'}
 }];
-function sgLoadBusinesses(){try{var s=localStorage.getItem('sg_businesses');if(s){var p=JSON.parse(s);if(Array.isArray(p)&&p.length){var e=p.filter(function(b){return b.id!=='nafass';});SG_BUSINESSES=[SG_BUSINESSES[0]].concat(e);}}}catch(e){}}
-function sgSaveBusinesses(){try{localStorage.setItem('sg_businesses',JSON.stringify(SG_BUSINESSES));}catch(e){}}
+/* ══════════════════════════════════════════════
+   BUSINESS REGISTRY — stored in NAFASS Firebase
+   so ALL devices (phone, laptop, tablet) share
+   the same company list automatically.
+   Collection: sg_businesses (in the master Firebase)
+══════════════════════════════════════════════ */
+
+function sgLoadBusinesses(){
+  /* 1. Load from localStorage as instant cache (fast on repeat loads) */
+  try{
+    var s=localStorage.getItem('sg_businesses');
+    if(s){
+      var p=JSON.parse(s);
+      if(Array.isArray(p)&&p.length){
+        var extras=p.filter(function(b){return b.id!=='nafass';});
+        SG_BUSINESSES=[SG_BUSINESSES[0]].concat(extras);
+      }
+    }
+  }catch(e){}
+
+  /* 2. Then fetch fresh from Firebase (syncs across devices) */
+  sgLoadBusinessesFromFirebase();
+}
+
+function sgLoadBusinessesFromFirebase(){
+  /* Use the default db (NAFASS Firebase — always available) */
+  if(!db) return;
+  db.collection('sg_businesses').get()
+    .then(function(snap){
+      if(snap.empty) return; /* no extra companies yet */
+      var fromDb=[];
+      snap.forEach(function(doc){
+        var d=doc.data();
+        if(d && d.id && d.id!=='nafass') fromDb.push(d);
+      });
+      if(!fromDb.length) return;
+      /* Merge: keep NAFASS first, add/update others from DB */
+      var merged=[SG_BUSINESSES[0]];
+      fromDb.forEach(function(biz){
+        /* Ensure firebaseConfig is parsed (Firestore may return it as-is) */
+        if(typeof biz.firebaseConfig==='string'){
+          try{biz.firebaseConfig=JSON.parse(biz.firebaseConfig);}catch(e){}
+        }
+        merged.push(biz);
+      });
+      SG_BUSINESSES=merged;
+      /* Update localStorage cache */
+      try{localStorage.setItem('sg_businesses',JSON.stringify(SG_BUSINESSES));}catch(e){}
+      /* Re-render hub if it's currently open */
+      var hub=document.getElementById('sg-hub');
+      if(hub && hub.style.display!=='none') sgRenderHub();
+      /* Update the business login picker if open */
+      var f=document.getElementById('sg-login-form');
+      if(f && f.style.display!=='none') sgShowBusinessLogin();
+    })
+    .catch(function(e){ console.warn('sgLoadBusinessesFromFirebase:', e.message); });
+}
+
+function sgSaveBusinesses(){
+  /* 1. Always update localStorage cache */
+  try{localStorage.setItem('sg_businesses',JSON.stringify(SG_BUSINESSES));}catch(e){}
+
+  /* 2. Save each non-NAFASS business to Firebase so all devices sync */
+  if(!db) return;
+  SG_BUSINESSES.forEach(function(biz){
+    if(biz.id==='nafass') return; /* never write NAFASS to DB — it's hardcoded */
+    /* Store firebaseConfig as a plain object (Firestore handles nested objects fine) */
+    var toSave=Object.assign({},biz);
+    try{
+      db.collection('sg_businesses').doc(biz.id).set(toSave)
+        .catch(function(e){ console.warn('sgSaveBusinesses write:', e.message); });
+    }catch(e){ console.warn('sgSaveBusinesses:', e.message); }
+  });
+}
+
+function sgDeleteBusinessFromFirebase(bizId){
+  if(!db || !bizId || bizId==='nafass') return;
+  db.collection('sg_businesses').doc(bizId).delete()
+    .catch(function(e){ console.warn('sgDeleteBusinessFromFirebase:', e.message); });
+}
 
 /* Firebase Config */
 var firebaseConfig = {
@@ -3935,7 +4016,7 @@ async function loadAllData(){
 
 /* ── INIT ── */
 async function initApp(){
-  sgLoadBusinesses();
+  sgLoadBusinesses(); /* loads from localStorage + Firebase */
   /* Service Worker — caches app for instant repeat loads */
   if('serviceWorker' in navigator){
     try{
@@ -8963,7 +9044,7 @@ function sgRenderHub(){
       var b=SG_BUSINESSES[i];
       if(!b)return;
       if(!confirm('Pause "'+b.name+'"?\nUsers will not be able to log in until you resume it.'))return;
-      SG_BUSINESSES[i].paused=true;sgSaveBusinesses();sgRenderHub();showT(b.name+' paused');
+      SG_BUSINESSES[i].paused=true;sgSaveBusinesses();sgRenderHub();showT(b.name+' paused — syncing…');
     });
   });
   grid.querySelectorAll('.sg-resume-btn').forEach(function(btn){
@@ -8971,10 +9052,112 @@ function sgRenderHub(){
       e.stopPropagation();
       var i=parseInt(this.getAttribute('data-bizidx'));
       var b=SG_BUSINESSES[i];if(!b)return;
-      SG_BUSINESSES[i].paused=false;sgSaveBusinesses();sgRenderHub();showT(b.name+' is now active');
+      SG_BUSINESSES[i].paused=false;sgSaveBusinesses();sgRenderHub();showT(b.name+' is now active — syncing…');
     });
   });
 }
+/* ═══════════════════════════════════════════════════
+   ROBUST FIREBASE CONFIG PARSER
+   Handles every format the user might paste:
+   - Raw JSON  { "apiKey": "..." }
+   - JS object { apiKey: "..." }
+   - Full declaration: const firebaseConfig = { ... }
+   - With // comments
+   - With markdown links [[text](url)] in values
+   - With measurementId line
+   - Extra whitespace, trailing semicolons
+═══════════════════════════════════════════════════ */
+function parseFirebaseConfig(raw, errEl){
+  if(!raw || !raw.trim()){
+    if(errEl) errEl.textContent = 'Please paste your Firebase config';
+    return null;
+  }
+
+  var s = raw;
+
+  /* Step 1: Remove // comment lines */
+  var lines = s.split('\n');
+  lines = lines.filter(function(l){ return l.trim().indexOf('//') !== 0; });
+  s = lines.join('\n');
+
+  /* Step 2: Fix markdown link artifacts [text](url) -> text */
+  s = s.replace(/\[\[([^\]]+)\]\([^)]*\)\]/g, '$1');
+  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+
+  /* Step 3: Strip const/var/let declaration prefix */
+  s = s.replace(/^[\s\S]*?(?:const|var|let)\s+\w+\s*=\s*/, '');
+
+  /* Step 4: Strip trailing semicolon */
+  s = s.replace(/;\s*$/, '').trim();
+
+  /* Step 5: Extract the { ... } block */
+  var m = s.match(/\{[\s\S]*\}/);
+  if(m) s = m[0];
+  s = s.trim();
+
+  /* Step 6: Try JSON parse — first quote any unquoted keys */
+  var cfg = null;
+  var jsonStr = s.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+  jsonStr = jsonStr.replace(/":\s*\'([^\']*)\'\s*([,}])/g, '":"$1"$2');
+  try {
+    cfg = JSON.parse(jsonStr);
+  } catch(e1) {
+    /* Step 7: Fallback — safe JS eval */
+    try {
+      cfg = Function('"use strict"; return (' + s + ')')();
+    } catch(e2) {
+      if(errEl){
+        errEl.style.color = '#FCA5A5';
+        errEl.textContent = 'Could not read config. Paste only the { apiKey: "...", ... } block.';
+      }
+      console.warn('Config parse failed. Input:', raw);
+      return null;
+    }
+  }
+
+  if(!cfg || typeof cfg !== 'object'){
+    if(errEl) errEl.textContent = 'Config must be an object { apiKey: "...", ... }';
+    return null;
+  }
+
+  /* Step 8: Clean markdown from values */
+  Object.keys(cfg).forEach(function(k){
+    if(typeof cfg[k] === 'string'){
+      cfg[k] = cfg[k]
+        .replace(/\[\[([^\]]+)\]\([^)]*\)\]/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .trim();
+    }
+  });
+
+  /* Step 9: Validate */
+  if(!cfg.apiKey){
+    if(errEl) errEl.textContent = 'Missing apiKey in config';
+    return null;
+  }
+  if(!cfg.projectId){
+    if(errEl) errEl.textContent = 'Missing projectId in config';
+    return null;
+  }
+
+  return cfg;
+}
+
+function testFirebaseConfig(){
+  var raw  = (document.getElementById('ab-firebase').value||'').trim();
+  var errEl= document.getElementById('ab-error');
+  if(errEl) errEl.textContent='';
+  var cfg = parseFirebaseConfig(raw, errEl);
+  if(cfg){
+    if(errEl){
+      errEl.style.color='#6EE7B7';
+      errEl.textContent='✅ Config looks good! Project: ' + cfg.projectId
+        + (cfg.authDomain ? ' | Domain: '+cfg.authDomain : '');
+    }
+    console.log('Parsed config:', cfg);
+  }
+}
+
 function sgSaveNewBusiness(){
   var name=(document.getElementById('ab-name').value||'').trim();
   var desc=(document.getElementById('ab-desc').value||'').trim();
@@ -8986,17 +9169,8 @@ function sgSaveNewBusiness(){
   if(errEl)errEl.textContent='';
   if(!name||!user||!pass||!fbRaw){if(errEl)errEl.textContent='Fill all required fields';return;}
   if(SG_BUSINESSES.find(function(b){return b.username===user;})){if(errEl)errEl.textContent='Username already taken';return;}
-  var fbConfig;
-  try{
-    var raw=fbRaw.replace(/\/\/[^\n]*/g,'').replace(/\[\[([^\]]+)\]\([^)]+\)\]/g,'$1').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/^[\s\S]*?(const|var|let)\s+\w+\s*=\s*/,'').replace(/;\s*$/,'').trim();
-    var m=raw.match(/\{[\s\S]*\}/);if(m)raw=m[0];
-    fbConfig=JSON.parse(raw.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g,'$1"$2":'));
-  }catch(e){
-    try{fbConfig=Function('return ('+fbRaw+')')();}
-    catch(e2){if(errEl)errEl.textContent='Invalid Firebase config';return;}
-  }
-  if(!fbConfig||!fbConfig.apiKey||!fbConfig.projectId){if(errEl)errEl.textContent='Config needs apiKey and projectId';return;}
-  Object.keys(fbConfig).forEach(function(k){if(typeof fbConfig[k]==='string')fbConfig[k]=fbConfig[k].replace(/\[\[([^\]]+)\]\([^)]+\)\]/g,'$1').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').trim();});
+  var fbConfig = parseFirebaseConfig(fbRaw, errEl);
+  if(!fbConfig) return;
   var taxSel=document.getElementById('ab-tax')?document.getElementById('ab-tax').value:'ghana';
   var tinVal=(document.getElementById('ab-tin')?document.getElementById('ab-tin').value:'').trim();
   var taxPresets={
@@ -10740,6 +10914,6 @@ document.addEventListener('click',function(e){
   if(!sb)document.body.classList.remove('sb-shown');
 });
 </script>
-<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a11d80470acf58f4',t:'MTc4MjQ5MDQyNQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
