@@ -3836,9 +3836,14 @@ function sgLoadBusinessesFromFirebase(){
       /* Re-render hub if it's currently open */
       var hub=document.getElementById('sg-hub');
       if(hub && hub.style.display!=='none') sgRenderHub();
-      /* Update the business login picker if open */
+      /* Refresh ONLY the picker list (not the whole form — that would clear inputs) */
       var f=document.getElementById('sg-login-form');
-      if(f && f.style.display!=='none') sgShowBusinessLogin();
+      if(f && f.style.display!=='none'){
+        /* Rebuild picker list silently */
+        sgBizPickerBuild();
+        /* If picker is open, refresh it */
+        if(_bizPickerOpen) sgFilterBizPicker();
+      }
     })
     .catch(function(e){ console.warn('sgLoadBusinessesFromFirebase:', e.message); });
 }
@@ -8826,12 +8831,61 @@ function sgShowBusinessLogin(){
   var pw=document.getElementById('login-pass');if(pw)pw.value='';
   // Reset picker
   sgBizPickerReset();
-  // Build the options
-  sgBizPickerBuild();
-  setTimeout(function(){
-    var disp=document.getElementById('biz-picker-display');
-    if(disp) disp.click();
-  },120);
+
+  // Show a "loading" state while we fetch from Firebase
+  var listEl=document.getElementById('biz-picker-list');
+  if(listEl && SG_BUSINESSES.length<=1){
+    listEl.innerHTML='<div style="padding:16px;text-align:center;color:rgba(255,255,255,.4);font-size:13px">'+
+      '<svg style="animation:spin .8s linear infinite;display:inline-block;margin-bottom:6px" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,.7)" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>'+
+      '<div>Loading companies...</div></div>';
+  }
+
+  // Fetch fresh from Firebase THEN build (guarantees phone sees all companies)
+  if(db){
+    db.collection('sg_businesses').get()
+      .then(function(snap){
+        if(!snap.empty){
+          var fromDb=[];
+          snap.forEach(function(doc){
+            var d=doc.data();
+            if(d&&d.id&&d.id!=='nafass') fromDb.push(d);
+          });
+          if(fromDb.length){
+            var merged=[SG_BUSINESSES[0]];
+            fromDb.forEach(function(biz){
+              if(typeof biz.firebaseConfig==='string'){try{biz.firebaseConfig=JSON.parse(biz.firebaseConfig);}catch(e){}}
+              /* update or add */
+              var existing=merged.findIndex(function(b){return b.id===biz.id;});
+              if(existing>=0) merged[existing]=biz; else merged.push(biz);
+            });
+            SG_BUSINESSES=merged;
+            try{localStorage.setItem('sg_businesses',JSON.stringify(SG_BUSINESSES));}catch(e){}
+          }
+        }
+        /* Now build picker with full list */
+        sgBizPickerBuild();
+        setTimeout(function(){
+          var disp=document.getElementById('biz-picker-display');
+          if(disp) disp.click();
+        },80);
+      })
+      .catch(function(e){
+        console.warn('sgShowBusinessLogin fetch:', e.message);
+        /* Fall back to whatever we have */
+        sgBizPickerBuild();
+        setTimeout(function(){
+          var disp=document.getElementById('biz-picker-display');
+          if(disp) disp.click();
+        },80);
+      });
+  } else {
+    /* No Firebase yet — use cached list */
+    sgBizPickerBuild();
+    setTimeout(function(){
+      var disp=document.getElementById('biz-picker-display');
+      if(disp) disp.click();
+    },120);
+  }
 }
 
 /* ── Biz Picker helpers ── */
@@ -10914,6 +10968,6 @@ document.addEventListener('click',function(e){
   if(!sb)document.body.classList.remove('sb-shown');
 });
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a11d8de78c931b23',t:'MTc4MjQ5MDk4Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a11da2511a164193',t:'MTc4MjQ5MTgxOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
